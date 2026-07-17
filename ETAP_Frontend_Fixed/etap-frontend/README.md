@@ -43,21 +43,7 @@ exists, not just theoretical cleanup:
 | Alert "time ago" text was hardcoded demo copy; the real backend doesn't (and shouldn't) store a static string for something that's always relative to *now* | Added `formatRelativeTime()`, computed client-side from the real `dateEnvoi` timestamp |
 | `useApiData` had no way to reload after a mutation (e.g. after validating an invoice, the page kept showing stale data) | Added `refetch()` to the hook |
 
-## What changed vs. the original export
 
-| Problem | Fix |
-|---|---|
-| Didn't build standalone (`react`/`react-dom` were peer-only) | Moved to real `dependencies` |
-| No `tsconfig.json`, no type-checking | Added `tsconfig.json` + `tsconfig.node.json`; `npm run build` now runs `tsc --noEmit` first |
-| Fake login (`setTimeout`, no real auth) | Real `keycloak-js` integration in `src/lib/keycloak.ts` + `src/app/AuthGate.tsx` (Authorization Code + PKCE, JWT-based) |
-| No API calls anywhere — everything was hardcoded mock data | Typed API client (`src/lib/api/`) with automatic Bearer-token injection and a demo-data fallback (`src/data/demoData.ts`) so the app still works before the backend exists |
-| Mock data was Algerian (SONELGAZ, NAFTAL, Oran, Skikda...) | Replaced with real Tunisian context: STEG (électricité/gaz), SONEDE (eau), Tunis/Sfax/Gafsa/Sousse/Gabès/Nabeul |
-| One 1,854-line `App.tsx` | Split into `pages/`, `layout/`, `components/`, `lib/`, `types/`, `data/`, `hooks/` |
-| No real routing (`react-router` installed but unused) | Real `<BrowserRouter>` with per-page URLs, deep-linking, and browser back/forward support |
-| Fake "Sync Keycloak" / fabricated API keys / fake password form in Settings | Removed — replaced with real, env-driven Keycloak config display, a live connection test, and links out to Keycloak's own account/admin console (which is where those things actually belong) |
-| Currency shown as DZD (Algerian dinar) | TND (Tunisian dinar) everywhere |
-| `npm install` failed outright (`@mui/material` peer-dependency conflict) | Removed `@mui/*` and `@emotion/*` — they were leftover template dependencies never actually imported anywhere in the code |
-| 2 high-severity vulnerabilities (`react-router`, `vite`) | Bumped to patched versions — `npm audit` now reports 0 vulnerabilities |
 
 ## Data model
 
