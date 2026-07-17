@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleType {
+  ADMIN
+  AGENT
+  RESPONSABLE_REGIONAL
+}
+
+enum TypeEnergie {
+  EAU
+  GAZ
+  ELECTRICITE
+}
+
+enum ModeSaisie {
+  MANUEL
+  OCR
+}
+
+enum StatutFacture {
+  BROUILLON
+  EN_ATTENTE_VALIDATION
+  VALIDEE
+  REJETEE
+}
+
+enum TypeReleve {
+  RELEVE
+  ESTIMATION
+}
+
+enum SeveriteAnomalie {
+  FAIBLE
+  MOYENNE
+  CRITIQUE
+}
+
+model Utilisateur {
+  id           Int      @id @default(autoincrement())
+  keycloakId   String   @unique
+  nom          String
+  prenom       String
+  email        String   @unique
+  role         RoleType
+  actif        Boolean  @default(true)
+  dept         String?
+  dateCreation DateTime @default(now())
+
+  facturesCreees     Facture[]    @relation("FactureCreateur")
+  facturesValidees   Facture[]    @relation("FactureValidateur")
+  alertesRecues      Alerte[]
+  regionsSupervisees Region[]     @relation("ResponsableRegion")
+
+  @@map("utilisateurs")
+}
+
+model Region {
+  id          Int     @id @default(autoincrement())
+  nom         String
+  code        String  @unique
+  description String?
+  couleur     String?
+
+  responsable   Utilisateur? @relation("ResponsableRegion", fields: [responsableId], references: [id])
+  responsableId Int?
+
+  sites          Site[]
+  tableauxDeBord TableauDeBord[]
+
+  @@map("regions")
+}
+
+model Site {
+  id        Int     @id @default(autoincrement())
+  nom       String
+  adresse   String
+  reference String  @unique
+  type      String?
+  statut    String  @default("active")
+
+  region   Region @relation(fields: [regionId], references: [id])
+  regionId Int
+
+  compteurs   Compteur[]
+  predictions Prediction[]
+
+  @@index([regionId])
+  @@map("sites")
+}
+
+/// Compteur physique installé dans un Site (local). Accumule l'historique
+/// des Facture liées à ce compteur au fil du temps — ajouté suite aux
+/// retours de conception (l'ancien index d'une facture doit correspondre
+/// au nouvel index de la précédente sur le MEME compteur).
+model Compteur {
+  id              Int         @id @default(autoincrement())
+  referenceUnique String      @unique
+  type            TypeEnergie
+
+  site   Site @relation(fields: [siteId], references: [id])
+  siteId Int
+
+  factures Facture[]
+
+  @@index([siteId])
+  @@map("compteurs")
+}
+
+model Fournisseur {
+  id                 Int         @id @default(autoincrement())
+  nom                String
+  codeFournisseur    String      @unique
+  typeEnergieFournie TypeEnergie
+  telephone          String?
+  adresse            String?
+
+  factures Facture[]
+
+  @@map("fournisseurs")
+}
+
+model Facture {
+  id                  Int           @id @default(autoincrement())
+  numeroFacture       String        @unique
+  typeReleve          TypeReleve
+  dateFacture         DateTime
+  dateEmission        DateTime
+  periodeDebut        DateTime
+  periodeFin          DateTime
+  dateEcheance        DateTime
+  puissanceSouscrite  Float?
+  nombreMois          Int           @default(1)
+  montantHT           Float
+  totalTaxes          Float
+  montantTTC          Float
+  arrieres            Float         @default(0)
+  paiementsPrecedents Float         @default(0)
+  montantAPayer       Float
+  typeEnergie         TypeEnergie
+  modeSaisie          ModeSaisie
+  statut              StatutFacture @default(BROUILLON)
+  motifRejet          String?
+  fichierScanUrl      String?
+
+  compteur   Compteur @relation(fields: [compteurId], references: [id])
+  compteurId Int
+
+  fournisseur   Fournisseur @relation(fields: [fournisseurId], references: [id])
+  fournisseurId Int
+
+  creePar   Utilisateur @relation("FactureCreateur", fields: [creeParId], references: [id])
+  creeParId Int
+
+  valideePar   Utilisateur? @relation("FactureValidateur", fields: [valideeParId], references: [id])
+  valideeParId Int?
+
+  lignesConsommation LigneConsommation[]
+  taxes              Taxe[]
+  extractionOCR      ExtractionOCR?
+  anomalies          Anomalie[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([compteurId])
+  @@index([fournisseurId])
+  @@index([statut])
+  @@map("factures")
+}
+
+model LigneConsommation {
+  id             Int    @id @default(autoincrement())
+  libelleTranche String
+  ancienIndex    Float
+  nouveauIndex   Float
+  quantite       Float
+  prixUnitaire   Float
+  montantHT      Float
+  tauxTVA        Float
+
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  factureId Int
+
+  @@index([factureId])
+  @@map("lignes_consommation")
+}
+
+model Taxe {
+  id       Int    @id @default(autoincrement())
+  libelle  String
+  base     Float?
+  tauxOuPU Float?
+  montant  Float
+
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  factureId Int
+
+  @@index([factureId])
+  @@map("taxes")
+}
+
+model ExtractionOCR {
+  id               Int      @id @default(autoincrement())
+  texteBrut        String?
+  donneesExtraites Json?
+  tauxConfiance    Float
+  dateExtraction   DateTime @default(now())
+
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  factureId Int     @unique
+
+  @@map("extractions_ocr")
+}
+
+model Anomalie {
+  id            Int              @id @default(autoincrement())
+  typeAnomalie  String
+  description   String
+  severite      SeveriteAnomalie
+  dateDetection DateTime         @default(now())
+  traitee       Boolean          @default(false)
+
+  facture   Facture @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  factureId Int
+
+  alertes Alerte[]
+
+  @@index([factureId])
+  @@map("anomalies")
+}
+
+model Alerte {
+  id        Int      @id @default(autoincrement())
+  message   String
+  titre     String?
+  dateEnvoi DateTime @default(now())
+  lue       Boolean  @default(false)
+  priorite  String?
+  categorie String?
+  statut    String   @default("active")
+
+  anomalie   Anomalie @relation(fields: [anomalieId], references: [id], onDelete: Cascade)
+  anomalieId Int
+
+  destinataire   Utilisateur @relation(fields: [destinataireId], references: [id])
+  destinataireId Int
+
+  @@index([destinataireId])
+  @@map("alertes")
+}
+
+model Prediction {
+  id                  Int         @id @default(autoincrement())
+  periodeCible        DateTime
+  valeurPredite       Float
+  modeleUtilise       String
+  dateGeneration      DateTime    @default(now())
+  intervalleConfiance Float?
+  typeEnergie         TypeEnergie
+
+  site   Site @relation(fields: [siteId], references: [id])
+  siteId Int
+
+  @@index([siteId])
+  @@map("predictions")
+}
+
+model TableauDeBord {
+  id    Int    @id @default(autoincrement())
+  titre String
+
+  region   Region @relation(fields: [regionId], references: [id])
+  regionId Int
+
+  @@map("tableaux_de_bord")
+}
